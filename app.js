@@ -204,7 +204,7 @@ app.post('/signIn', async (req, res) => {
 })
 
 // Summary
-app.post('/summarize', isAuth, async (req, res) => {
+app.post('/summarize', async (req, res) => {
     console.log('summary api started')
 
     const { paragraph } = req.body;
@@ -219,7 +219,7 @@ app.post('/summarize', isAuth, async (req, res) => {
 });
 
 // code
-app.post('/getCode', isAuth, async (req, res) => {
+app.post('/getCode', async (req, res) => {
     console.log('code api running')
     const { language,inputedCode } = req.body;
     console.log(language,inputedCode);
@@ -234,7 +234,7 @@ app.post('/getCode', isAuth, async (req, res) => {
   
 
 // chat
-app.post('/saveChat', isAuth, async (req,res)=>{
+app.post('/saveChat', async (req,res)=>{
     try {
         const { allMessages } = req.body;
  
@@ -259,7 +259,7 @@ app.post('/saveChat', isAuth, async (req,res)=>{
 })
 
 // chat : previous chats
-app.get('/getAllChats', isAuth, async (req, res) => {
+app.get('/getAllChats', async (req, res) => {
     try {
         const allChats = await saveChatModel.find();
         res.status(200).send(allChats);
@@ -271,7 +271,7 @@ app.get('/getAllChats', isAuth, async (req, res) => {
 
 
 // PDF : getSummary
-app.post('/pdfSummary', isAuth, async (req, res) => {
+app.post('/pdfSummary', async (req, res) => {
     const { pdfContent } = req.body;
     // console.log(paragraph);
     
@@ -284,7 +284,7 @@ app.post('/pdfSummary', isAuth, async (req, res) => {
 });
 
 // PDF : getQuestions
-app.post('/pdfQuestions', isAuth, async(req,res) =>{
+app.post('/pdfQuestions', async(req,res) =>{
     const { pdfContent } = req.body;
     try {
         const allQuestions = await questions(pdfContent);
@@ -295,7 +295,7 @@ app.post('/pdfQuestions', isAuth, async(req,res) =>{
 })
 
 // PDF askDoubt
-app.post('/askDoubt', isAuth, async(req,res) =>{
+app.post('/askDoubt', async(req,res) =>{
     console.log('im inside ask doubt');
     const { pdfContent } = req.body;
     const { question } = req.body;
@@ -308,7 +308,7 @@ app.post('/askDoubt', isAuth, async(req,res) =>{
 })
 
 // IMAGE
-app.post('/genImg', isAuth, async(req,res)=>{
+app.post('/genImg', async(req,res)=>{
     const {  prompt } = req.body
     // console.log('prompt is : ',prompt);
 
@@ -330,7 +330,7 @@ app.post('/genImg', isAuth, async(req,res)=>{
 })
 
 // LogOut
-app.post("/logout", isAuth, (req, res) => {
+app.post("/logout", (req, res) => {
     // id = req.session.id
     // sessionModel.findOneAndDelete({_id : id})
     req.session.destroy((err) => {
