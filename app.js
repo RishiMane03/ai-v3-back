@@ -6,6 +6,9 @@ const clc = require("cli-color");
 const mongoose = require("mongoose");
 const bcrypt = require("bcrypt");
 const validator = require("validator");
+const session = require("express-session");
+const mongoDbsession = require("connect-mongodb-session")(session); //(session) > we are finding this(session) inside 'connect-mongodb-session'
+
 
 
 // OpenAI
@@ -20,15 +23,23 @@ const solution = require('./utils/codeUtils');
 const saveChatModel = require('./models/saveChatModel');
 const questions = require('./utils/questionsUtils');
 const pdfDoubt = require('./utils/pdfDoubt');
+const userModel = require('./models/userModel');
+const { userDataValidation } = require('./utils/authUtils');
+const { isAuth } = require('./middleware/authMiddleware');
 
 // Variables
 const app = express();
 const PORT = process.env.PORT || 7000;
+const store = new mongoDbsession({
+    uri: process.env.URI,
+    collection: "sessions",
+});
 
 
 // Middleware
 app.use(cors({
     origin: 'https://ai-v3-front.vercel.app', // Allow requests from this origin
+    // origin: 'http://localhost:3000', // Allow requests from this origin
     credentials: true // Allow credentials (cookies, authorization headers, etc.)
 }));
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -38,14 +49,23 @@ app.use(express.json()); // this is used for hitting req from anywhere like post
 // CORS Middleware
 const corsMiddleware = (req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', 'https://ai-v3-front.vercel.app');
+    // res.setHeader('Access-Control-Allow-Origin', 'http://localhost:3000');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
     res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
     res.setHeader('Access-Control-Allow-Credentials', true);
     next();
 };
-
 // Apply CORS Middleware globally
 app.use(corsMiddleware);
+// Session Middleware
+app.use(
+    session({ //session ni ky kela phje te apn hite sgtoy
+      secret: process.env.SECRET_KEY,
+      resave: false,
+      saveUninitialized: false,
+      store: store,
+    })
+);
 
 
 // Databse Connection
@@ -59,8 +79,132 @@ mongoose.connect(process.env.URI)
     res.send('Welcome to the world of ai')
 })
 
+// SignUp:
+app.post('/register', async(req, res)=>{
+    console.log('req.body is >> ',req.body);
+    const { name, email, username, password } = req.body;
+
+    // Data validation
+    try {
+        await userDataValidation(name, email, username, password);
+    } catch (error) {
+        return res.send({
+        status: 400,
+        message: "Data error",
+        error: error,
+        });
+    }
+
+    //check if email and username already exist or not
+    const usernameAlreadyExist = await userModel.findOne({username})
+    if(usernameAlreadyExist){
+        return res.send({
+            status: 400,
+            message: "Username already exists",
+            alreadyUser: true
+        });
+    }
+
+    const emailAlreadyExist = await userModel.findOne({email})
+    if(emailAlreadyExist){
+        return res.send({
+            status: 400,
+            message: "Email already exists",
+            alreadyEmail: true
+        });
+    }
+
+    // Bcrypt the password
+    const hashedPassword = await bcrypt.hash(
+        password,
+        parseInt(process.env.SALT)
+    );
+
+    // Storing data in DB
+    const userData = userModel({
+        name: name,
+        email: email,
+        username: username,
+        password: hashedPassword,
+    })
+
+    try {
+        const userDb = await userData.save();
+        return res.send({
+          status: 201,
+          message: "Registeration successfull",
+          data: userDb,
+        });
+    } catch (error) {
+        return res.send({
+          status: 500,
+          message: "Database error",
+          error: error,
+        });
+    }
+})
+
+// LogIn
+app.post('/signIn', async (req, res) => {
+    const { name, password } = req.body;
+
+    // find user in database
+    try {
+         let userDb = await userModel.findOne({ username: name });
+
+        // console.log('userDb > ',userDb);
+        // no user found
+        if(!userDb) {
+            console.log('userDb inside > ',userDb);
+            return res.send({
+                status: 400,
+                message: "User not found, please register",
+                noUser : true
+            });
+        }
+
+        // hash password verify
+        const isMatched = await bcrypt.compare(password, userDb.password); //it will return true/false 
+
+        if(!isMatched) {
+            return res.send({
+                status: 400,
+                message: "Password does not match",
+                wrongPassword: true
+            });
+        }
+
+         //session base auth (when login is succesfull store data in dataBase)
+        req.session.isAuth = true;
+        req.session.user = {
+            userId: userDb._id,
+            email: userDb.email,
+            username: userDb.username,
+        };
+
+        // find the userData from database
+        const userDataObj = await userModel.find({ name })
+
+        return res.send({
+            status: 200,
+            message: "Login successful",
+            loginSuccessful : true ,
+            userDataObj : userDataObj
+        })
+
+    } catch (error) {
+        return res.send({
+            status: 500,
+            message: "Database error",
+            error: error,
+            dataBaseError : true
+        })
+    }
+
+})
+
 // Summary
-app.post('/summarize', async (req, res) => {
+app.post('/summarize', isAuth, async (req, res) => {
     console.log('summary api started')
 
     const { paragraph } = req.body;
@@ -75,7 +219,7 @@ app.post('/summarize', async (req, res) => {
 });
 
 // code
-app.post('/getCode', async (req, res) => {
+app.post('/getCode', isAuth, async (req, res) => {
     console.log('code api running')
     const { language,inputedCode } = req.body;
     console.log(language,inputedCode);
@@ -90,7 +234,7 @@ app.post('/getCode', async (req, res) => {
   
 
 // chat
-app.post('/saveChat', async (req,res)=>{
+app.post('/saveChat', isAuth, async (req,res)=>{
     try {
         const { allMessages } = req.body;
  
@@ -115,7 +259,7 @@ app.post('/saveChat', async (req,res)=>{
 })
 
 // chat : previous chats
-app.get('/getAllChats', async (req, res) => {
+app.get('/getAllChats', isAuth, async (req, res) => {
     try {
         const allChats = await saveChatModel.find();
         res.status(200).send(allChats);
@@ -127,7 +271,7 @@ app.get('/getAllChats', async (req, res) => {
 
 
 // PDF : getSummary
-app.post('/pdfSummary', async (req, res) => {
+app.post('/pdfSummary', isAuth, async (req, res) => {
     const { pdfContent } = req.body;
     // console.log(paragraph);
     
@@ -140,7 +284,7 @@ app.post('/pdfSummary', async (req, res) => {
 });
 
 // PDF : getQuestions
-app.post('/pdfQuestions', async(req,res) =>{
+app.post('/pdfQuestions', isAuth, async(req,res) =>{
     const { pdfContent } = req.body;
     try {
         const allQuestions = await questions(pdfContent);
@@ -151,7 +295,7 @@ app.post('/pdfQuestions', async(req,res) =>{
 })
 
 // PDF askDoubt
-app.post('/askDoubt', async(req,res) =>{
+app.post('/askDoubt', isAuth, async(req,res) =>{
     console.log('im inside ask doubt');
     const { pdfContent } = req.body;
     const { question } = req.body;
@@ -164,7 +308,7 @@ app.post('/askDoubt', async(req,res) =>{
 })
 
 // IMAGE
-app.post('/genImg', async(req,res)=>{
+app.post('/genImg', isAuth, async(req,res)=>{
     const {  prompt } = req.body
     // console.log('prompt is : ',prompt);
 
@@ -184,6 +328,19 @@ app.post('/genImg', async(req,res)=>{
         aiImageURL : response.data[0].url
     })
 })
+
+// LogOut
+app.post("/logout", isAuth, (req, res) => {
+    // id = req.session.id
+    // sessionModel.findOneAndDelete({_id : id})
+    req.session.destroy((err) => {
+      if (err) {
+        return res.status(500).send("Logout unsuccessfull");
+      } else {
+        return res.status(200).send({logoutSucess: true});
+      }
+    });
+});
 
 app.listen(PORT,()=>{
     console.log(clc.white.bgGreen.underline(`Server running on port ${PORT}`));
