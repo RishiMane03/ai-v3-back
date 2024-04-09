@@ -57,6 +57,7 @@ const corsMiddleware = (req, res, next) => {
 };
 // Apply CORS Middleware globally
 app.use(corsMiddleware);
+
 // Session Middleware
 app.use(
     session({ //session ni ky kela phje te apn hite sgtoy
